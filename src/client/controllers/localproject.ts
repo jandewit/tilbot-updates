@@ -123,6 +123,16 @@ class LocalProjectController extends BasicProjectController {
                 targets = false;
             }
 
+            let autocomplete_options: any[] = [];
+
+            block.connectors.forEach(function(c: any) {
+                if (c.is_autocomplete !== undefined && c.is_autocomplete) {
+                    autocomplete_options.push(c.label);
+                }
+            });
+
+            params.autocomplete_options = autocomplete_options;
+
             this.chatbot_message_callback({type: block.type, content: content, params: params, has_targets: targets});
         }
     }

@@ -1,6 +1,7 @@
 const CsvData = require('./csvdata.cjs');
 const ChatGPT = require('./chatgpt.cjs');
 const LocalLLM = require('./localllm.cjs');
+const { data } = require('autoprefixer');
 
 class ProjectController {
     constructor(io, project, socket_id, p, llm_setting) {
@@ -14,16 +15,10 @@ class ProjectController {
         if (process.versions.hasOwnProperty('electron')) {
           let Logger = require('./logger.cjs');
           this.logger = new Logger(p);
-          if (this.current_block_id !== -1) {
-            this._send_current_message();        
-          }
         }
         else {
           import('../clientsocket/logger.js').then((mod) => {
             this.logger = new mod.Logger(project.id);
-            if (this.current_block_id !== -1) {
-              this._send_current_message();        
-            }
           });
         }        
 
@@ -32,19 +27,6 @@ class ProjectController {
         this.csv_datas = {};
 
         this.chatgpt_var_mem = undefined;
-
-        // Set up the data files
-        for (let v in this.project.variables) {
-          if (this.project.variables[v].type == 'csv') {
-            if (process.versions.hasOwnProperty('electron')) {
-              this.csv_datas[this.project.variables[v].name] = new CsvData(this.project.variables[v].csvfile, p + '/currentproject/');
-            }
-            else {
-              this.csv_datas[this.project.variables[v].name] = new CsvData(this.project.variables[v].csvfile, p);
-            }
-          }
-        }
-
 
         if (this.project.settings === undefined) {
             this.project.settings = {
@@ -59,6 +41,29 @@ class ProjectController {
                 
         this.io.to(this.socket_id).emit('settings', this.project.settings);
 
+        let self = this;
+
+        this._init_csv_db(p).then(function() {
+          if (self.current_block_id !== -1) {
+            self._send_current_message();        
+          }  
+        });
+    }
+
+    async _init_csv_db(p = '') {
+        // Set up the data files
+        for (let v in this.project.variables) {
+          if (this.project.variables[v].type == 'csv') {
+            if (process.versions.hasOwnProperty('electron')) {
+              this.csv_datas[this.project.variables[v].name] = new CsvData();
+              await this.csv_datas[this.project.variables[v].name].initialize(this.project.variables[v].csvfile, p + '/currentproject/');
+            }
+            else {
+              this.csv_datas[this.project.variables[v].name] = new CsvData();
+              await this.csv_datas[this.project.variables[v].name].initialize(this.project.variables[v].csvfile, p);
+            }
+          }
+        }
     }
 
     get_path() {
@@ -307,7 +312,43 @@ class ProjectController {
       }
     }
 
-    send_message(block, input = '') {
+    async _check_connector_label_vars(label) {
+      let matches = [...label.matchAll(/\[([^\]]+)\]/g)];
+
+      if (matches.length == 0) {
+        return label;
+      }
+
+      let out = [];
+
+      for (const match of matches) {
+        // If it's a column from a CSV table, there should be a period.
+        // Element 1 of the match contains the string without the brackets.
+        const csv_parts = match[1].split('.');
+        if (csv_parts.length == 2) {
+            const [db, col] = csv_parts;
+
+            if (db in this.client_vars) {
+              console.log(client_vars[db][col]);
+              out.push(client_vars[db][col]);
+            }
+            else {
+              console.log('checking...');
+              let res = await this.csv_datas[db].get(col);
+              out = out.concat(res);
+            }
+        } else {
+            out.push(this.client_vars[match]);
+        }
+
+      }
+
+      console.log('returning...');
+
+      return out;
+    }    
+
+    async send_message(block, input = '') {
       this.message_processed = false;
 
       var params = {};
@@ -359,10 +400,27 @@ class ProjectController {
         this.logger.log('message_bot', block.content);
       }
       else {
+          let autocomplete_options = [];
+
+          for (c of block.connectors) {
+            if (c.is_autocomplete !== undefined && c.is_autocomplete) {
+              let o = await this._check_connector_label_vars(c.label);
+              console.log('==== ' + c.label);
+              console.log(o);
+              console.log('====');
+              if (o.constructor !== Array) {
+                o = [o];                    
+              }
+              autocomplete_options = autocomplete_options.concat(o);
+            }
+          }
+
+          params.autocomplete_options = autocomplete_options;
+
           this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});          
           this.logger.log('message_bot', block.content);  
       }        
-    }
+    } 
 
     message_sent_event() {
       var path = this.get_path();

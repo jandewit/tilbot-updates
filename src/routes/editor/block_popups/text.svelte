@@ -121,6 +121,7 @@
         <thead>
           <tr>
             <th>Selection method</th>
+            <th>Autocomplete</th>
             <th>User response to match with</th>
             <th></th>
             <th></th>
@@ -134,6 +135,11 @@
                         <option selected value="contains">Contains text</option>
                         <option value="barcode">Barcode/QR scan</option>
                     </select>                    
+                </td>
+                <td>
+                    {#if connector.method == 'contains'}
+                    <input type="checkbox" class="toggle" bind:checked="{connector.is_autocomplete}" />
+                    {/if}
                 </td>
                 <td><input type="text" placeholder="Type here" class="input input-bordered w-full max-w-xs" bind:value={connector.label} /></td>
                 <td>
