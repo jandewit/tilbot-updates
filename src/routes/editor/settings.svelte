@@ -24,7 +24,7 @@
                                 <td data-setting-id="2" class="cursor-pointer {selected_setting == 2 ? 'bg-tilbot-primary-200' : ''}" on:click={settings_row_clicked}>Typing behavior</td>
                             </tr>
                             <tr class="hover">
-                                <td data-setting-id="3" class="cursor-pointer {selected_setting == 3 ? 'bg-tilbot-primary-200' : ''}" on:click={settings_row_clicked}>ChatGPT prompts</td>
+                                <td data-setting-id="3" class="cursor-pointer {selected_setting == 3 ? 'bg-tilbot-primary-200' : ''}" on:click={settings_row_clicked}>Simulated user prompts</td>
                             </tr>
                         </tbody>
                         </table>    
@@ -207,7 +207,7 @@
                     <!-- ChatGPT prompts -->
                     {#if selected_setting == 3}
                     <div class="h-full flex flex-col w-full">
-                        <div class="w-full text-xl text-center font-bold">ChatGPT prompts</div>
+                        <div class="w-full text-xl text-center font-bold">Simulated user prompts</div>
                         <div class="p-8 flex-1 overflow-y-auto">
 
                             <table class="table w-full">
@@ -289,7 +289,7 @@
                             </tbody>
                         </table>          
                         
-                        <table class="table w-full mt-8">
+                        <!--<table class="table w-full mt-8">
                             <thead>
                                 <th colspan="2">ChatGPT version for simulated user</th>
                             </thead>
@@ -303,7 +303,7 @@
                                     <td><input type="radio" name="gpt-sim-version" class="radio" bind:group="{gen_copy.chatgpt_sim_version}" value="gpt-4-1106-preview" /></td>
                                 </tr>
                             </tbody>
-                        </table> 
+                        </table>--> 
                         {:else}                        
                         <table class="table w-full">
                             <thead>
@@ -314,6 +314,22 @@
                             </tbody>
                         </table>                         
                         {/if}
+
+                        <table class="table w-full">
+                            <thead>
+                                <th>Temperature</th>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <span class="italic">A higher temperature means the LLM is given more freedom to formulate its replies, it will be more random and less deterministic.</span><br /><br />
+                                        <input type="range" min="0.1" max="0.9" bind:value="{gen_copy.temperature}" class="range w-1/2" step="0.1" /> <br/>
+                                        {gen_copy.temperature}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>  
+
                     </div>
                     {/if}
                 </div>
@@ -422,6 +438,9 @@
             }
             if (gen_copy.llm_api_address == undefined) {
                 gen_copy.llm_api_address = '';
+            }
+            if (gen_copy.temperature == undefined) {
+                gen_copy.temperature = 0.5;
             }
 
             toggle.click();

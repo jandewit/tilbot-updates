@@ -81,7 +81,7 @@
                 console.log('=====');
 
                 const completion = await openai.createChatCompletion({
-                    model: gensettings.chatgpt_sim_version,
+                    model: "gpt-4.1-mini",
                     messages: msgs,
                     temperature: settings.temperature
                 });
@@ -200,10 +200,9 @@
                 let openai = new OpenAIApi(configuration);
 
                 const completion = await openai.createChatCompletion({
-                        //model: "gpt-3.5-turbo",
-                        model: gensettings.chatgpt_sim_version,
+                        model: "gpt-4.1-mini",
                         messages: var_msgs,
-                        temperature: settings.temperature
+                        temperature: gensettings.temperature
                 });
 
                 console.log(completion);
