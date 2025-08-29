@@ -175,13 +175,6 @@ class ProjectController {
               return this.check_variables(content, input);
           }
         }
-
-        if (typeof input === 'object' && input !== null) {
-          content = content.substring(0, matches.index) + input[matches[1]] + content.substring(matches.index + matches[1].length + 2);
-        }
-        else if (input !== '' && content.includes('[input]')) {
-          content = content.replace('[input]', input);
-        }  
         else {
           // If it's a column from a CSV table, there should be a period.
           // Element 1 of the match contains the string without the brackets.
@@ -199,13 +192,25 @@ class ProjectController {
 
               // Check if local variable
               if (db in this.client_vars) {
+                if (this.client_vars[db].constructor === Array) {
+                  content = content.replace('[' + matches[1] + ']', this.client_vars[db][0][col]);
+                }
+                else {
                   content = content.replace('[' + matches[1] + ']', this.client_vars[db][col]);
+                }
               }
           }
           else {
               content = content.replace('[' + matches[1] + ']', this.client_vars[matches[1]]);
           }
-        }
+        }        
+
+        /*if (typeof input === 'object' && input !== null) {
+          content = content.substring(0, matches.index) + input[matches[1]] + content.substring(matches.index + matches[1].length + 2);
+        }*/
+        if (input !== '' && content.includes('[input]')) {
+          content = content.replace('[input]', input);
+        }  
       }  
 
       if (regExp.lastIndex !== 0) {
@@ -282,7 +287,7 @@ class ProjectController {
                 }
 
                 else if (matches[1] == 'input') {
-                  this.client_vars[connector.events[c].var_name] = connector.events[c].var_value.replace('[input]', input_str);
+                  this.client_vars[connector.events[c].var_name] = input_str;//connector.events[c].var_value.replace('[input]', input_str);
                 }
 
             }
@@ -313,6 +318,32 @@ class ProjectController {
     }
 
     async _check_connector_label_vars(label) {
+      // Dirty check for nested brackets
+      let leftbracketfound = false;
+      let nestedfound = false;
+      for (let c of label) {
+        if (c == '[') {
+          if (leftbracketfound) {
+            nestedfound = true;
+            break;  
+          }
+          leftbracketfound = true;
+        }
+        else if (c == ']' && leftbracketfound) {
+          break;
+        }
+      }
+
+      if (nestedfound) {
+        // Check if there is a nested variable that needs to be fixed
+        let nestedmatches = [...label.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+
+        for (const match of nestedmatches) {
+          let nobrackets = match[1].substring(1,match[1].length-1);
+          label = label.replace(match[1], this.client_vars[nobrackets]);
+        }
+      }
+
       let matches = [...label.matchAll(/\[([^\]]+)\]/g)];
 
       if (matches.length == 0) {
@@ -329,11 +360,16 @@ class ProjectController {
             const [db, col] = csv_parts;
 
             if (db in this.client_vars) {
-              console.log(client_vars[db][col]);
-              out.push(client_vars[db][col]);
+              if (this.client_vars[db].constructor === Array) {
+                for (const r of this.client_vars[db]) {
+                  out.push(r[col]);
+                }
+              }
+              else {
+                out.push(this.client_vars[db][col]);                
+              }
             }
             else {
-              console.log('checking...');
               let res = await this.csv_datas[db].get(col);
               out = out.concat(res);
             }
@@ -343,9 +379,9 @@ class ProjectController {
 
       }
 
-      console.log('returning...');
-
-      return out;
+      // Unique items only
+      let unique = [...new Set(out)];
+      return unique;
     }    
 
     async send_message(block, input = '') {
@@ -478,6 +514,32 @@ class ProjectController {
           }
       }
 
+      // Dirty check for nested brackets
+      let leftbracketfound = false;
+      let nestedfound = false;
+      for (let c of connector) {
+        if (c == '[') {
+          if (leftbracketfound) {
+            nestedfound = true;
+            break;  
+          }
+          leftbracketfound = true;
+        }
+        else if (c == ']' && leftbracketfound) {
+          break;
+        }
+      }
+
+      if (nestedfound) {
+        // Check if there is a nested variable that needs to be fixed
+        let nestedmatches = [...connector.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+
+        for (const match of nestedmatches) {
+          let nobrackets = match[1].substring(1,match[1].length-1);
+          connector = connector.replace(match[1], this.client_vars[nobrackets]);
+        }
+      }
+
       // Check for tags / special commands
       let regExp = /\[([^\]]+)\]/g;
       let matches = regExp.exec(connector);
@@ -502,13 +564,31 @@ class ProjectController {
 
               // Check if local variable
               if (db in this.client_vars) {
-                  let var_options = this.client_vars[db][col].split('|');
                   
-                  for (var o in var_options) {
-                      let opt = var_options[o].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                      if (str.match(new RegExp("\\b"+opt+"\\b", "i")) != null && should_match) {                  
-                          return var_options[o];
-                      }
+                  if (this.client_vars[db].constructor === Array) {
+                    let res = [];
+
+                    for (const r of this.client_vars[db]) {
+                      if (r[col] == str && should_match) {
+                        res.push(r);
+                      } 
+                    }
+
+                    if (res.length > 0 && should_match) {
+                      let unique = [...new Set(res)];
+                      return unique;
+                    }
+                  }
+
+                  else {
+                    let var_options = this.client_vars[db][col].split('|');
+                  
+                    for (var o in var_options) {
+                        let opt = var_options[o].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                        if (str.match(new RegExp("\\b"+opt+"\\b", "i")) != null && should_match) {                  
+                            return var_options[o];
+                        }
+                    }  
                   }
 
                   if (!should_match) {
@@ -516,19 +596,19 @@ class ProjectController {
                   }
               }
               else {
-                  let parts = str.split(' ');
+                  //let parts = str.split(' ');
 
-                  for (let part in parts) {
+                  //for (let part in parts) {
 
-                      let res = await this.csv_datas[db].get(col, parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', ''));
-                  
+                      let res = await this.csv_datas[db].get(col, str.replace('barcode:', ''));//.replace('?', '').replace('!', '').replace('.', ''));
+
                       if (res.length > 0 && should_match) {
-                          return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+                        return res;
                       }
                       else if (res.length == 0 && !should_match) {
-                          return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+                        return str;
                       }
-                  }
+                  //}
               }
           }
 
