@@ -58,7 +58,7 @@ class LocalProjectController extends BasicProjectController {
                         }
                     }
                     else if (matches[1] == 'input') {
-                        this.client_vars[connector.events[c].var_name] = connector.events[c].var_value.replace('[input]', input_str);
+                        this.client_vars[connector.events[c].var_name] = input_str;//connector.events[c].var_value.replace('[input]', input_str);
                     }
                 }
                 else {
@@ -87,7 +87,75 @@ class LocalProjectController extends BasicProjectController {
         }
       }    
 
-    send_message(block: any, input: string = '') {
+      async _check_connector_label_vars(label) {
+        // Dirty check for nested brackets
+        let leftbracketfound = false;
+        let nestedfound = false;
+        for (let c of label) {
+          if (c == '[') {
+            if (leftbracketfound) {
+              nestedfound = true;
+              break;  
+            }
+            leftbracketfound = true;
+          }
+          else if (c == ']' && leftbracketfound) {
+            break;
+          }
+        }
+  
+        if (nestedfound) {
+          // Check if there is a nested variable that needs to be fixed
+          let nestedmatches = [...label.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+  
+          for (const match of nestedmatches) {
+            let nobrackets = match[1].substring(1,match[1].length-1);
+            label = label.replace(match[1], this.client_vars[nobrackets]);
+          }
+        }
+  
+        let matches = [...label.matchAll(/\[([^\]]+)\]/g)];
+  
+        if (matches.length == 0) {
+          return label;
+        }
+  
+        let out = [];
+  
+        for (const match of matches) {
+          // If it's a column from a CSV table, there should be a period.
+          // Element 1 of the match contains the string without the brackets.
+          const csv_parts = match[1].split('.');
+          if (csv_parts.length == 2) {
+              const [db, col] = csv_parts;
+  
+              if (db in this.client_vars) {
+                if (Array.isArray(this.client_vars[db])) {
+                  for (const r of this.client_vars[db]) {
+                    out.push(r[col]);
+                  }
+                }
+                else {
+                  out.push(this.client_vars[db][col]);                
+                }
+              }
+              else {
+                let res = await window.parent.api.invoke('query-db', {db: db, col: col, val: ''});
+                out = out.concat(res);
+              }
+          } else {
+              out.push(this.client_vars[match]);
+          }
+  
+        }
+  
+        // Unique items only
+        let unique = [...new Set(out)];
+        return unique;
+      }    
+  
+
+    async send_message(block: any, input: string = '') {
         let params: any = {};
 
         let content = this.check_variables(block.content, input);
@@ -104,36 +172,32 @@ class LocalProjectController extends BasicProjectController {
 
             this.chatbot_message_callback({type: block.type, content: content, params: params});
         }
-        else if (block.type == 'List') {
-            params.options = block.items;
-            params.text_input = block.text_input;
-            params.number_input = block.number_input;
-
-            this.chatbot_message_callback({type: block.type, content: content, params: params});
-        }
-        else if (block.type == 'Group') {
-            this.move_to_group({id: this.current_block_id, model: block});
-            this.current_block_id = block.starting_block_id;
-            this.send_message(block.blocks[block.starting_block_id]);
-        }
-        else {
-            let targets = true;
-
+        else if (block.type == 'Auto') {
             if (block.connectors[0].targets.length == 0) {
-                targets = false;
+              // This one must rely on triggers, so we should accept input -- especially useful for triggering voice input to listen.
+              params.expect_input = true;
             }
-
+            this.chatbot_message_callback({type: block.type, content: content, params: params});          
+        }        
+        else { // Text
             let autocomplete_options: any[] = [];
 
-            block.connectors.forEach(function(c: any) {
-                if (c.is_autocomplete !== undefined && c.is_autocomplete) {
-                    autocomplete_options.push(c.label);
+            for (c of block.connectors) {
+              if (c.is_autocomplete !== undefined && c.is_autocomplete) {
+                let o = await this._check_connector_label_vars(c.label);
+                console.log('==== ' + c.label);
+                console.log(o);
+                console.log('====');
+                if (!Array.isArray(o)) {
+                  o = [o];                    
                 }
-            });
-
+                autocomplete_options = autocomplete_options.concat(o);
+              }
+            }
+  
             params.autocomplete_options = autocomplete_options;
-
-            this.chatbot_message_callback({type: block.type, content: content, params: params, has_targets: targets});
+ 
+            this.chatbot_message_callback({type: block.type, content: content, params: params});
         }
     }
 
@@ -261,13 +325,6 @@ class LocalProjectController extends BasicProjectController {
                 return this.check_variables(content, input);
             }
           }
-
-          if (typeof input === 'object' && input !== null) {
-            content = content.substring(0, matches.index) + input[matches[1]] + content.substring(matches.index + matches[1].length + 2);
-          }
-          else if (input !== '' && content.includes('[input]')) {
-            content = content.replace('[input]', input);
-          }  
           else {
             // If it's a column from a CSV table, there should be a period.
             // Element 1 of the match contains the string without the brackets.
@@ -285,13 +342,22 @@ class LocalProjectController extends BasicProjectController {
 
                 // Check if local variable
                 if (db in this.client_vars) {
-                    content = content.replace('[' + matches[1] + ']', this.client_vars[db][col]);
+                    if (Array.isArray(this.client_vars[db])) {
+                      content = content.replace('[' + matches[1] + ']', this.client_vars[db][0][col]);
+                    }
+                    else {
+                      content = content.replace('[' + matches[1] + ']', this.client_vars[db][col]);
+                    }
                 }
             }
             else {
                 content = content.replace('[' + matches[1] + ']', this.client_vars[matches[1]]);
             }
           }
+
+          if (input !== '' && content.includes('[input]')) {
+            content = content.replace('[input]', input);
+          }            
         }  
 
         if (regExp.lastIndex !== 0) {
@@ -332,6 +398,32 @@ class LocalProjectController extends BasicProjectController {
             }
         }
 
+        // Dirty check for nested brackets
+        let leftbracketfound = false;
+        let nestedfound = false;
+        for (let c of connector) {
+            if (c == '[') {
+            if (leftbracketfound) {
+                nestedfound = true;
+                break;  
+            }
+            leftbracketfound = true;
+            }
+            else if (c == ']' && leftbracketfound) {
+            break;
+            }
+        }
+
+        if (nestedfound) {
+            // Check if there is a nested variable that needs to be fixed
+            let nestedmatches = [...connector.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+
+            for (const match of nestedmatches) {
+            let nobrackets = match[1].substring(1,match[1].length-1);
+            connector = connector.replace(match[1], this.client_vars[nobrackets]);
+            }
+        }
+
         // Check for tags / special commands
         let regExp = /\[([^\]]+)\]/g;
         let matches = regExp.exec(connector);
@@ -356,33 +448,50 @@ class LocalProjectController extends BasicProjectController {
 
                 // Check if local variable
                 if (db in this.client_vars) {
-                    let var_options = this.client_vars[db][col].split('|');
-                    
-                    for (var o in var_options) {
-                        let opt = var_options[o].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                        if (str.match(new RegExp("\\b"+opt+"\\b", "i")) != null && should_match) {                    
-                            return var_options[o];
+                    if (Array.isArray(this.client_vars[db])) {
+                        let res = [];
+    
+                        for (const r of this.client_vars[db]) {
+                          if (r[col] == str && should_match) {
+                            res.push(r);
+                          } 
                         }
-                    }
-
-                    if (!should_match) {
-                        return '';
-                    }
+    
+                        if (res.length > 0 && should_match) {
+                          let unique = [...new Set(res)];
+                          return unique;
+                        }
+                      }
+    
+                      else {
+                        let var_options = this.client_vars[db][col].split('|');
+                      
+                        for (var o in var_options) {
+                            let opt = var_options[o].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            if (str.match(new RegExp("\\b"+opt+"\\b", "i")) != null && should_match) {                  
+                                return var_options[o];
+                            }
+                        }  
+                      }
+    
+                      if (!should_match) {
+                          return '';
+                      }
                 }
                 else {
-                    let parts = str.split(' ');
+                    //let parts = str.split(' ');
 
-                    for (let part in parts) {
+                    //for (let part in parts) {
 
-                        let res = await window.parent.api.invoke('query-db', {db: db, col: col, val: parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '')});
-                    
+                        let res = await window.parent.api.invoke('query-db', {db: db, col: col, val: str.replace('barcode:', '')});//.replace('?', '').replace('!', '').replace('.', '')});
+
                         if (res.length > 0 && should_match) {
-                            return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+                            return res;//return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
                         }
                         else if (res.length == 0 && !should_match) {
-                            return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+                            return res;//return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
                         }
-                    }
+                    //}
                 }
             }
             else {

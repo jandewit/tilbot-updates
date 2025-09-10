@@ -408,25 +408,6 @@ class ProjectController {
         this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});
         this.logger.log('message_bot', block.content);
       }
-      else if (block.type == 'List') {
-        params.options = block.items;
-        params.text_input = block.text_input;
-        params.number_input = block.number_input;
-
-        this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});
-        this.logger.log('message_bot', block.content);
-      }
-      else if (block.type == 'Group') {
-          this.move_to_group({id: this.current_block_id, model: block});
-          this.current_block_id = block.starting_block_id;
-          this.send_message(block.blocks[block.starting_block_id]);
-      }
-      else if (block.type == 'AutoComplete') {
-        params.options = block.options;
-
-        this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});
-        this.logger.log('message_bot', block.content);
-      }
       else if (block.type == 'Auto') {
         if (block.connectors[0].targets.length == 0) {
           // This one must rely on triggers, so we should accept input -- especially useful for triggering voice input to listen.
@@ -435,7 +416,7 @@ class ProjectController {
         this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});          
         this.logger.log('message_bot', block.content);
       }
-      else {
+      else { // Text
           let autocomplete_options = [];
 
           for (c of block.connectors) {

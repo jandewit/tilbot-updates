@@ -107,7 +107,7 @@
       {#if autocomplete_options.length == 0}
       <textarea class="relative top-2 h-16 textarea textarea-bordered resize-none inset-y-2 left-4 w-[calc(100%-5.5rem)]" placeholder="" bind:this={input_text} on:keydown={input_key_down} on:input={input_change}></textarea>
       {:else}
-      <input type="text" list="autocomplete-options" class="relative top-2 h-16 textarea textarea-bordered resize-none inset-y-2 left-4 w-[calc(100%-5.5rem)]" placeholder="" bind:this={input_text} on:keydown={input_key_down} on:input={input_change} />
+      <input type="text" list="{(isMobileOperatingSystem() || input_text.value.length > 2)?"autocomplete-options":""}" class="relative top-2 h-16 textarea textarea-bordered resize-none inset-y-2 left-4 w-[calc(100%-5.5rem)]" placeholder="" bind:this={input_text} on:keydown={input_key_down} on:input={input_change} />
       <datalist id="autocomplete-options">
         {#each autocomplete_options as ao}
         <option value="{ao}"></option>
@@ -253,6 +253,32 @@ onMount(() => {
       socket_addr = '';
     }
 });
+
+/**
+ * Determine if the user is running a mobile operating system or not.
+ * Altered from: 
+ *
+ * @returns {boolean}
+ */
+ function isMobileOperatingSystem() {
+    var userAgent = navigator.userAgent || navigator.vendor || window.opera;
+
+    // Windows Phone must come first because its UA also contains "Android"
+    if (/windows phone/i.test(userAgent)) {
+        return true;
+    }
+
+    if (/android/i.test(userAgent)) {
+        return true;
+    }
+
+    // iOS detection from: http://stackoverflow.com/a/9039885/177710
+    if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+        return true;
+    }
+
+    return false;
+}
 
 function firstletter(str: string) {
   return str.charAt(0).toUpperCase();
