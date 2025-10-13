@@ -406,7 +406,7 @@ class ProjectController {
         console.log(params);
 
         this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});
-        this.logger.log('message_bot', block.content);
+        this.logger.log('message_bot', content);
       }
       else if (block.type == 'Auto') {
         if (block.connectors[0].targets.length == 0) {
@@ -414,7 +414,7 @@ class ProjectController {
           params.expect_input = true;
         }
         this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});          
-        this.logger.log('message_bot', block.content);
+        this.logger.log('message_bot', content);
       }
       else { // Text
           let autocomplete_options = [];
@@ -435,7 +435,7 @@ class ProjectController {
           params.autocomplete_options = autocomplete_options;
 
           this.io.to(this.socket_id).emit('bot message', {type: block.type, content: content, params: params});          
-          this.logger.log('message_bot', block.content);  
+          this.logger.log('message_bot', content);  
       }        
     } 
 
@@ -719,7 +719,7 @@ class ProjectController {
     }
 
     log(str) {
-      this.logger.log(str);
+      this.logger.log('window_message', str);
     }
 
     set_participant_id(pid) {

@@ -313,7 +313,7 @@ async function message_received(event: MessageEvent) {
   }
   else {
     if (event.data.startsWith('log:')) {
-      controller.log(event.data.substring(5));
+      controller.log(event.data.substring(4));
     }
     else if (event.data.startsWith('chatgpt|')) {
       chatgpt_message(event.data.substring(8));
@@ -325,14 +325,15 @@ async function message_received(event: MessageEvent) {
     else {
       current_message_type = 'Text';
       await tick();
-      input_text.value = event.data;
+      /*input_text.value = event.data;
 
       try {
         text_submit();
       }
       finally {
         input_text.value = '';
-      }    
+      } */
+      controller.receive_message(event.data);   
     }
   }
 }
