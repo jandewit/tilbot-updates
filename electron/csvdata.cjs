@@ -16,15 +16,13 @@ class CsvData {
         let csvfile = new LineByLine(p + '/var/' + filename);
         let firstline = csvfile.next();
         let firstlineutf = firstline.toString('utf8').replace("\r", "").replace(/[\u0000-\u001F\u007F-\u009F\u200B\u200C\uFEFF]/g, "");
-        let cols = firstlineutf.split(';');
+        let cols = firstlineutf.split('~');
 
         // Set up the CSV database
-        this.db = await csvdb(p + '/var/' + filename, cols, ";");
+        this.db = await csvdb(p + '/var/' + filename, cols, "~");
     }
 
     async get(col, val = '') {
-        console.log(val + 'heyj');
-        console.log(this.db);
         if (this.db !== null) {
             if (val == '') {
                 let out = [];
