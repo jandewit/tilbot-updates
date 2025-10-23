@@ -604,7 +604,7 @@ class ProjectController {
       }
 
       else {
-          let candidate = connector.toLowerCase().replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+          let candidate = connector.toLowerCase();//.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
           if ((candidate == str.replace('barcode:', '').toLowerCase()) || (str.replace('barcode:', '').toLowerCase().match(new RegExp("\\b"+candidate+"\\b", "i")) != null)) {
               return str;
           }                  

@@ -498,7 +498,7 @@ function mc_submit(event: MouseEvent) {
   if (event.target !== null) {
     let tar = event.target as HTMLElement;
     mc_options.forEach(function(value) {
-      if (value.content == tar.innerHTML) {
+      if (value.content == tar.innerText) {
         user_message(value.content);
         current_message_type = 'Text';
         return;
