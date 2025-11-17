@@ -2,6 +2,8 @@ const CsvData = require('./csvdata.cjs');
 const ChatGPT = require('./chatgpt.cjs');
 const LocalLLM = require('./localllm.cjs');
 const { data } = require('autoprefixer');
+const LocalLogger = require('./logger.cjs');
+const RemoteLogger = require('../clientsocket/logger.js');
 
 class ProjectController {
     constructor(io, project, socket_id, p, llm_setting) {
@@ -13,13 +15,10 @@ class ProjectController {
         this.logger = undefined;
 
         if (process.versions.hasOwnProperty('electron')) {
-          let Logger = require('./logger.cjs');
-          this.logger = new Logger(p);
+          this.logger = new LocalLogger(p);
         }
         else {
-          import('../clientsocket/logger.js').then((mod) => {
-            this.logger = new mod.Logger(project.id);
-          });
+          this.logger = new RemoteLogger.Logger(project.id);
         }        
 
         this.client_vars = {};
