@@ -3,7 +3,6 @@ const ChatGPT = require('./chatgpt.cjs');
 const LocalLLM = require('./localllm.cjs');
 const { data } = require('autoprefixer');
 const LocalLogger = require('./logger.cjs');
-const RemoteLogger = require('../clientsocket/logger.js');
 
 class ProjectController {
     constructor(io, project, socket_id, p, llm_setting) {
@@ -18,6 +17,7 @@ class ProjectController {
           this.logger = new LocalLogger(p);
         }
         else {
+          const RemoteLogger = require('../clientsocket/logger.js');
           this.logger = new RemoteLogger.Logger(project.id);
         }        
 
