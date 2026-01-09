@@ -19,12 +19,15 @@ export class Logger {
 
 
     log(event, detail = '') {
-        if (event == 'message_bot' || event == 'message_user') {
+        if (event == 'message_bot' || event == 'message_user' || event == "window_message") {
 
             let msg = new Logger.MessageDetails();
             msg.source = 'bot';
             if (event == 'message_user') {
                 msg.source = 'user';
+            }
+            else if (event == "window_message") {
+                msg.source = "window_message";
             }
             msg.message = detail;
             this._log.messages.push(msg);
