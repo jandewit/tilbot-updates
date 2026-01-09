@@ -385,8 +385,10 @@ function chatbot_message(msg: any) {
       console.log(msg);
 
       // Send the message
-      show_typing_indicator = true;
-      setTimeout(function() { message_container.scrollTop = message_container.scrollHeight; }, 10);
+      if (msg.content !== '') {
+        show_typing_indicator = true;
+        setTimeout(function() { message_container.scrollTop = message_container.scrollHeight; }, 10);
+      }
 
       let timeout = 2000;
      
@@ -576,9 +578,11 @@ function show_message(type: string, content: string, params: any, has_targets: b
       window.parent.postMessage(windowmsg);
     }
 
-    messages.push({from: 'bot', content: content});
-    messages = messages;
-    setTimeout(function() { message_container.scrollTop = message_container.scrollHeight; }, 10);    
+    if (content !== '') {
+      messages.push({from: 'bot', content: content});
+      messages = messages;
+      setTimeout(function() { message_container.scrollTop = message_container.scrollHeight; }, 10);    
+    }
 
     current_message_type = type;
     mc_options = [];
