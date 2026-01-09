@@ -1,650 +1,733 @@
-import {BasicProjectController} from '../../shared/controllers/basicproject';
+import { BasicProjectController } from "../../shared/controllers/basicproject";
 
 class LocalProjectController extends BasicProjectController {
+  private current_block_id: number;
+  private chatbot_message_callback: Function;
+  private chatbot_settings_callback: Function;
+  private variation_request_callback: Function;
+  private client_vars: any;
 
-    private current_block_id: number;
-    private chatbot_message_callback: Function;
-    private chatbot_settings_callback: Function;
-    private variation_request_callback: Function;
-    private client_vars: any;
+  // Keep track of time because it may take the LLM time to generate a response.
+  // We subtract this response time from the (artificial) typing delay since it has already passed.
+  private cur_time: number;
 
-    // Keep track of time because it may take the LLM time to generate a response.
-    // We subtract this response time from the (artificial) typing delay since it has already passed.
-    private cur_time: number;
+  constructor(
+    json_str: string,
+    chatbot_message_callback: Function,
+    chatbot_settings_callback: Function,
+    variation_request_callback: Function
+  ) {
+    super();
 
-    constructor(json_str: string, chatbot_message_callback: Function, chatbot_settings_callback: Function, variation_request_callback: Function) {
-        super();
+    this.chatbot_message_callback = chatbot_message_callback;
+    this.chatbot_settings_callback = chatbot_settings_callback;
+    this.variation_request_callback = variation_request_callback;
+    this.project = JSON.parse(json_str);
+    this.current_block_id = this.project.starting_block_id;
+    this.client_vars = {};
 
-        this.chatbot_message_callback = chatbot_message_callback;
-        this.chatbot_settings_callback = chatbot_settings_callback;
-        this.variation_request_callback = variation_request_callback;
-        this.project = JSON.parse(json_str);
-        this.current_block_id = this.project.starting_block_id;
-        this.client_vars = {};
-
-        if (this.project.settings === undefined) {
-            this.project.settings = {
-                'typing_style': 'fixed',
-                'typing_time': 2,
-                'typing_charpsec': 40,
-                'show_avatar': 'yes',
-                'name': 'Tilbot'
-            }            
-        }
-
-        this.chatbot_settings_callback(this.project.settings);
-        if (this.project.starting_block_id !== undefined && this.project.starting_block_id !== -1) {
-            this.send_message(this.project.blocks[this.project.starting_block_id.toString()]);
-        }
+    if (this.project.settings === undefined) {
+      this.project.settings = {
+        typing_style: "fixed",
+        typing_time: 2,
+        typing_charpsec: 40,
+        show_avatar: "yes",
+        name: "Tilbot",
+      };
     }
 
-    async send_events(connector: any, input_str: string) {
-        if (connector.events !== undefined) {
-          for (let c = 0; c < connector.events.length; c++) {
-            if (connector.events[c].type == 'message') {
-                // Do nothing for now (simulator)  
-            }
-            else if (connector.events[c].type == 'variable') {
-                let regExp = /\[([^\]]+)\]/g;
-                let matches = regExp.exec(connector.events[c].var_value);
-    
-                if (matches !== null) {
-                    // @TODO: support more elaborate DB look-ups, now hard-coded to do random line
-                    if (matches[1].toLowerCase().startsWith('random')) {
-                        let db = matches[1].substring(7, matches[1].indexOf(')'));
-                        let res = await window.parent.api.invoke('query-db-random', {db: db});
-                        if (res !== null) {
-                            this.client_vars[connector.events[c].var_name] = res;
-                        }
-                    }
-                    else if (matches[1] == 'input') {
-                        this.client_vars[connector.events[c].var_name] = input_str;//connector.events[c].var_value.replace('[input]', input_str);
-                    }
-                }
-                else {
-                    if (connector.events[c].var_value.startsWith('+')) {
-                        if (this.client_vars[connector.events[c].var_name] === undefined) {
-                            this.client_vars[connector.events[c].var_name] = parseInt(connector.events[c].var_value.substring(1).replace(' ', ''));
-                        }
-                        else {
-                            this.client_vars[connector.events[c].var_name] = parseInt(this.client_vars[connector.events[c].var_name]) + parseInt(connector.events[c].var_value.substring(1).replace(' ', ''));
-                        }
-                    }
-                    else if (connector.events[c].var_value.startsWith('-')) {
-                        if (this.client_vars[connector.events[c].var_name] === undefined) {
-                            this.client_vars[connector.events[c].var_name] = 0 - parseInt(connector.events[c].var_value.substring(1).replace(' ', ''));
-                        }
-                        else {
-                            this.client_vars[connector.events[c].var_name] = parseInt(this.client_vars[connector.events[c].var_name]) - parseInt(connector.events[c].var_value.substring(1).replace(' ', ''));
-                        }
-                    }         
-                    else {
-                        this.client_vars[connector.events[c].var_name] = connector.events[c].var_value;
-                    }           
-                }
-            }
-          }
-        }
-      }    
+    this.chatbot_settings_callback(this.project.settings);
+    if (
+      this.project.starting_block_id !== undefined &&
+      this.project.starting_block_id !== -1
+    ) {
+      this.send_message(
+        this.project.blocks[this.project.starting_block_id.toString()]
+      );
+    }
+  }
 
-      async _check_connector_label_vars(label) {
-        // Dirty check for nested brackets
-        let leftbracketfound = false;
-        let nestedfound = false;
-        for (let c of label) {
-          if (c == '[') {
-            if (leftbracketfound) {
-              nestedfound = true;
-              break;  
+  async send_events(connector: any, input_str: string) {
+    if (connector.events !== undefined) {
+      for (let c = 0; c < connector.events.length; c++) {
+        if (connector.events[c].type == "message") {
+          // Do nothing for now (simulator)
+        } else if (connector.events[c].type == "variable") {
+          let regExp = /\[([^\]]+)\]/g;
+          let matches = regExp.exec(connector.events[c].var_value);
+
+          if (matches !== null) {
+            // @TODO: support more elaborate DB look-ups, now hard-coded to do random line
+            if (matches[1].toLowerCase().startsWith("random")) {
+              let db = matches[1].substring(7, matches[1].indexOf(")"));
+              let res = await window.parent.api.invoke("query-db-random", {
+                db: db,
+              });
+              if (res !== null) {
+                this.client_vars[connector.events[c].var_name] = res;
+              }
+            } else if (matches[1] == "input") {
+              this.client_vars[connector.events[c].var_name] = input_str; //connector.events[c].var_value.replace('[input]', input_str);
             }
-            leftbracketfound = true;
-          }
-          else if (c == ']' && leftbracketfound) {
-            break;
-          }
-        }
-  
-        if (nestedfound) {
-          // Check if there is a nested variable that needs to be fixed
-          let nestedmatches = [...label.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
-  
-          for (const match of nestedmatches) {
-            let nobrackets = match[1].substring(1,match[1].length-1);
-            label = label.replace(match[1], this.client_vars[nobrackets]);
-          }
-        }
-  
-        let matches = [...label.matchAll(/\[([^\]]+)\]/g)];
-  
-        if (matches.length == 0) {
-          return label;
-        }
-  
-        let out = [];
-  
-        for (const match of matches) {
-          // If it's a column from a CSV table, there should be a period.
-          // Element 1 of the match contains the string without the brackets.
-          const csv_parts = match[1].split('.');
-          if (csv_parts.length == 2) {
-              const [db, col] = csv_parts;
-  
-              if (db in this.client_vars) {
-                if (Array.isArray(this.client_vars[db])) {
-                  for (const r of this.client_vars[db]) {
-                    out.push(r[col]);
-                  }
-                }
-                else {
-                  out.push(this.client_vars[db][col]);                
-                }
-              }
-              else {
-                let res = await window.parent.api.invoke('query-db', {db: db, col: col, val: ''});
-                out = out.concat(res);
-              }
           } else {
-              out.push(this.client_vars[match]);
+            if (connector.events[c].var_value.startsWith("+")) {
+              if (
+                this.client_vars[connector.events[c].var_name] === undefined
+              ) {
+                this.client_vars[connector.events[c].var_name] = parseInt(
+                  connector.events[c].var_value.substring(1).replace(" ", "")
+                );
+              } else {
+                this.client_vars[connector.events[c].var_name] =
+                  parseInt(this.client_vars[connector.events[c].var_name]) +
+                  parseInt(
+                    connector.events[c].var_value.substring(1).replace(" ", "")
+                  );
+              }
+            } else if (connector.events[c].var_value.startsWith("-")) {
+              if (
+                this.client_vars[connector.events[c].var_name] === undefined
+              ) {
+                this.client_vars[connector.events[c].var_name] =
+                  0 -
+                  parseInt(
+                    connector.events[c].var_value.substring(1).replace(" ", "")
+                  );
+              } else {
+                this.client_vars[connector.events[c].var_name] =
+                  parseInt(this.client_vars[connector.events[c].var_name]) -
+                  parseInt(
+                    connector.events[c].var_value.substring(1).replace(" ", "")
+                  );
+              }
+            } else {
+              this.client_vars[connector.events[c].var_name] =
+                connector.events[c].var_value;
+            }
           }
-  
         }
-  
-        // Unique items only
-        let unique = [...new Set(out)];
-        return unique;
-      }    
-  
+      }
+    }
+  }
 
-    async send_message(block: any, input: string = '') {
-        let params: any = {};
-
-        let content = this.check_variables(block.content, input);
-
-        if (block.type == 'MC') {
-            params.options = [];
-            for (var c in block.connectors) {
-                // Remove any additional variables/checks from the connector
-                let label_cleaned = block.connectors[c].label.replace(/\[([^\]]+)\]/g, "");
-                if (!params.options.includes(label_cleaned)) {
-                    params.options.push(label_cleaned);
-                }
-            }
-
-            this.chatbot_message_callback({type: block.type, content: content, params: params});
+  async _check_connector_label_vars(label) {
+    // Dirty check for nested brackets
+    let leftbracketfound = false;
+    let nestedfound = false;
+    for (let c of label) {
+      if (c == "[") {
+        if (leftbracketfound) {
+          nestedfound = true;
+          break;
         }
-        else if (block.type == 'Auto') {
-            if (block.connectors[0].targets.length == 0) {
-              // This one must rely on triggers, so we should accept input -- especially useful for triggering voice input to listen.
-              params.expect_input = true;
-            }
-            this.chatbot_message_callback({type: block.type, content: content, params: params});          
-        }        
-        else { // Text
-            let autocomplete_options: any[] = [];
+        leftbracketfound = true;
+      } else if (c == "]" && leftbracketfound) {
+        break;
+      }
+    }
 
-            for (c of block.connectors) {
-              if (c.is_autocomplete !== undefined && c.is_autocomplete) {
-                let o = await this._check_connector_label_vars(c.label);
-                console.log('==== ' + c.label);
-                console.log(o);
-                console.log('====');
-                if (!Array.isArray(o)) {
-                  o = [o];                    
-                }
-                autocomplete_options = autocomplete_options.concat(o);
+    if (nestedfound) {
+      // Check if there is a nested variable that needs to be fixed
+      let nestedmatches = [...label.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+
+      for (const match of nestedmatches) {
+        let nobrackets = match[1].substring(1, match[1].length - 1);
+        label = label.replace(match[1], this.client_vars[nobrackets]);
+      }
+    }
+
+    let matches = [...label.matchAll(/\[([^\]]+)\]/g)];
+
+    if (matches.length == 0) {
+      return label;
+    }
+
+    let out = [];
+
+    for (const match of matches) {
+      // If it's a column from a CSV table, there should be a period.
+      // Element 1 of the match contains the string without the brackets.
+      const csv_parts = match[1].split(".");
+      if (csv_parts.length == 2) {
+        const [db, col] = csv_parts;
+
+        if (db in this.client_vars) {
+          if (Array.isArray(this.client_vars[db])) {
+            for (const r of this.client_vars[db]) {
+              out.push(r[col]);
+            }
+          } else {
+            out.push(this.client_vars[db][col]);
+          }
+        } else {
+          let res = await window.parent.api.invoke("query-db", {
+            db: db,
+            col: col,
+            val: "",
+          });
+          out = out.concat(res);
+        }
+      } else {
+        out.push(this.client_vars[match]);
+      }
+    }
+
+    // Unique items only
+    let unique = [...new Set(out)];
+    return unique;
+  }
+
+  async send_message(block: any, input: string = "") {
+    let params: any = {};
+
+    let content = this.check_variables(block.content, input);
+
+    if (block.type == "MC") {
+      params.options = [];
+      for (var c in block.connectors) {
+        // Remove any additional variables/checks from the connector
+        let label_cleaned = block.connectors[c].label.replace(
+          /\[([^\]]+)\]/g,
+          ""
+        );
+        if (!params.options.includes(label_cleaned)) {
+          params.options.push(label_cleaned);
+        }
+      }
+
+      this.chatbot_message_callback({
+        type: block.type,
+        content: content,
+        params: params,
+      });
+    } else if (block.type == "Auto") {
+      if (block.connectors[0].targets.length == 0) {
+        // This one must rely on triggers, so we should accept input -- especially useful for triggering voice input to listen.
+        params.expect_input = true;
+      }
+      this.chatbot_message_callback({
+        type: block.type,
+        content: content,
+        params: params,
+      });
+    } else {
+      // Text
+      let autocomplete_options: any[] = [];
+
+      for (c of block.connectors) {
+        if (c.is_autocomplete !== undefined && c.is_autocomplete) {
+          let o = await this._check_connector_label_vars(c.label);
+          console.log("==== " + c.label);
+          console.log(o);
+          console.log("====");
+          if (!Array.isArray(o)) {
+            o = [o];
+          }
+          autocomplete_options = autocomplete_options.concat(o);
+        }
+      }
+
+      params.autocomplete_options = autocomplete_options;
+
+      this.chatbot_message_callback({
+        type: block.type,
+        content: content,
+        params: params,
+      });
+    }
+  }
+
+  check_group_exit(id: number) {
+    var path = this.get_path();
+
+    if (id == -1) {
+      var group_block_id = path[path.length - 1];
+      this.move_level_up();
+
+      path = this.get_path();
+
+      var block = this.project;
+
+      if (path.length > 0) {
+        for (var i = 0; i < path.length; i++) {
+          block = block.blocks[path[i]];
+        }
+      }
+
+      for (
+        var i = 0;
+        i < block.blocks[group_block_id.toString()].connectors.length;
+        i++
+      ) {
+        if (
+          block.blocks[group_block_id.toString()].connectors[i].from_id ==
+          this.current_block_id
+        ) {
+          var new_id =
+            block.blocks[group_block_id.toString()].connectors[i].targets[0];
+          this.current_block_id = group_block_id;
+          this.check_group_exit(new_id);
+          break;
+        }
+      }
+    } else {
+      this.current_block_id = id;
+      this._send_current_message();
+    }
+  }
+
+  message_sent_event() {
+    var path = this.get_path();
+
+    if (path.length == 0) {
+      if (
+        this.project.blocks[this.current_block_id.toString()].type == "Auto"
+      ) {
+        this.send_events(
+          this.project.blocks[this.current_block_id.toString()].connectors[0],
+          ""
+        );
+        this.current_block_id =
+          this.project.blocks[
+            this.current_block_id.toString()
+          ].connectors[0].targets[0];
+        this._send_current_message();
+      }
+    } else {
+      var block = this.project.blocks[path[0]];
+
+      for (var i = 1; i < path.length; i++) {
+        block = block.blocks[path[i]];
+      }
+
+      if (block.blocks[this.current_block_id.toString()].type == "Auto") {
+        var new_id =
+          block.blocks[this.current_block_id.toString()].connectors[0]
+            .targets[0];
+        this.check_group_exit(new_id);
+      }
+    }
+  }
+
+  _send_current_message(input: string = "") {
+    if (this.current_block_id == undefined || this.current_block_id == -1) {
+      return;
+    }
+
+    var self = this;
+    var path = this.get_path();
+    var block = this.project;
+
+    if (path.length > 0) {
+      block = this.project.blocks[path[0]];
+
+      for (var i = 1; i < path.length; i++) {
+        block = block.blocks[path[i]];
+      }
+    }
+
+    block = block.blocks[this.current_block_id.toString()];
+
+    if (block.chatgpt_variation !== undefined && block.chatgpt_variation) {
+      let content = this.check_variables(block.content, input);
+      let prompt = this.check_variables(block.variation_prompt);
+
+      this.cur_time = Date.now();
+      this.variation_request_callback(content, prompt, block.chatgpt_memory);
+    } else {
+      setTimeout(function () {
+        self.send_message(block, input);
+      }, block.delay * 1000);
+    }
+  }
+
+  check_variables(content: string, input: string = "") {
+    let regExp = /\[([^\]]+)\]/g;
+    let matches = regExp.exec(content);
+
+    if (matches !== null) {
+      if (matches[1].indexOf(" = ") !== -1) {
+        let matches2 = regExp.exec(content);
+
+        let parts = matches[1].split(" = ");
+        if (
+          parts[0] in this.client_vars &&
+          this.client_vars[parts[0]] == parts[1]
+        ) {
+          content =
+            content.substring(
+              matches2.index + 1,
+              matches2.index + 1 + matches2[1].length
+            ) + content.substring(matches2.index + matches2[0].length);
+          return this.check_variables(content, input);
+        } else {
+          content = content.replace(matches[0], "").replace(matches2[0], "");
+          return this.check_variables(content, input);
+        }
+      } else if (matches[1].indexOf(" != ") !== -1) {
+        let matches2 = regExp.exec(content);
+
+        let parts = matches[1].split(" != ");
+        if (
+          parts[0] in this.client_vars &&
+          this.client_vars[parts[0]] != parts[1]
+        ) {
+          content =
+            content.substring(
+              matches2.index + 1,
+              matches2.index + 1 + matches2[1].length
+            ) + content.substring(matches2.index + matches2[0].length);
+          return this.check_variables(content, input);
+        } else {
+          content = content.replace(matches[0], "").replace(matches2[0], "");
+          return this.check_variables(content, input);
+        }
+      } else {
+        // If it's a column from a CSV table, there should be a period.
+        // Element 1 of the match contains the string without the brackets.
+        let csv_parts = matches[1].split(".");
+
+        if (csv_parts.length == 2) {
+          let db = csv_parts[0];
+          let col = csv_parts[1];
+
+          // The column can be yet another variable
+          if (col.startsWith("[")) {
+            col = this.client_vars[col.substring(1)];
+            matches[1] += "]";
+          }
+
+          // Check if local variable
+          if (db in this.client_vars) {
+            if (Array.isArray(this.client_vars[db])) {
+              content = content.replace(
+                "[" + matches[1] + "]",
+                this.client_vars[db][0][col]
+              );
+            } else {
+              content = content.replace(
+                "[" + matches[1] + "]",
+                this.client_vars[db][col]
+              );
+            }
+          }
+        } else {
+          content = content.replace(
+            "[" + matches[1] + "]",
+            this.client_vars[matches[1]]
+          );
+        }
+      }
+
+      if (input !== "" && content.includes("[input]")) {
+        content = content.replace("[input]", input);
+      }
+    }
+
+    if (regExp.lastIndex !== 0) {
+      return this.check_variables(content, input);
+    }
+
+    return content;
+  }
+
+  async check_labeled_connector(connector: string, str: string): Promise<any> {
+    // Check if we should match a variable
+    if (connector.indexOf(" = ") !== -1) {
+      let parts = connector.split(" = ");
+
+      let key = parts[0] + "]";
+      let val = parts[1].substring(0, parts[1].length - 1);
+      let res = await this.check_labeled_connector(key, val);
+
+      if (res == val) {
+        return val;
+      } else {
+        return null;
+      }
+    } else if (connector.indexOf(" != ") !== -1) {
+      let parts = connector.split(" != ");
+
+      let key = parts[0] + "]";
+      let val = parts[1].substring(0, parts[1].length - 1);
+      let res = await this.check_labeled_connector(key, val);
+
+      if (res !== val) {
+        return val;
+      } else {
+        return null;
+      }
+    }
+
+    // Dirty check for nested brackets
+    let leftbracketfound = false;
+    let nestedfound = false;
+    for (let c of connector) {
+      if (c == "[") {
+        if (leftbracketfound) {
+          nestedfound = true;
+          break;
+        }
+        leftbracketfound = true;
+      } else if (c == "]" && leftbracketfound) {
+        break;
+      }
+    }
+
+    if (nestedfound) {
+      // Check if there is a nested variable that needs to be fixed
+      let nestedmatches = [...connector.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
+
+      for (const match of nestedmatches) {
+        let nobrackets = match[1].substring(1, match[1].length - 1);
+        connector = connector.replace(match[1], this.client_vars[nobrackets]);
+      }
+    }
+
+    // Check for tags / special commands
+    let regExp = /\[([^\]]+)\]/g;
+    let matches = regExp.exec(connector);
+
+    if (matches !== null) {
+      let should_match = true;
+      // @TODO: do something in case of multiple matches, and support [and] or [or]
+      //let match = matches[0];
+
+      // If it's a column from a CSV table, there should be a period.
+      // Element 1 of the match contains the string without the brackets.
+      let csv_parts = matches[1].split(".");
+
+      if (csv_parts.length == 2) {
+        let db = csv_parts[0];
+        let col = csv_parts[1];
+
+        if (db.startsWith("!")) {
+          should_match = false;
+          db = db.substring(1);
+        }
+
+        // Check if local variable
+        if (db in this.client_vars) {
+          if (Array.isArray(this.client_vars[db])) {
+            let res = [];
+
+            for (const r of this.client_vars[db]) {
+              if (r[col] == str && should_match) {
+                res.push(r);
               }
             }
-  
-            params.autocomplete_options = autocomplete_options;
- 
-            this.chatbot_message_callback({type: block.type, content: content, params: params});
-        }
-    }
 
-    check_group_exit(id: number) {
-        var path = this.get_path();
-
-        if (id == -1) {            
-            var group_block_id = path[path.length-1];
-            this.move_level_up();            
-
-            path = this.get_path();
-
-            var block = this.project;
-
-            if (path.length > 0) {
-                for (var i = 0; i < path.length; i++) {
-                    block = block.blocks[path[i]];
-                }
+            if (res.length > 0 && should_match) {
+              let unique = [...new Set(res)];
+              return unique;
             }
+          } else {
+            let var_options = this.client_vars[db][col].split("|");
 
-            for (var i = 0; i < block.blocks[group_block_id.toString()].connectors.length; i++) {
-                if (block.blocks[group_block_id.toString()].connectors[i].from_id == this.current_block_id) {
-                    var new_id = block.blocks[group_block_id.toString()].connectors[i].targets[0];
-                    this.current_block_id = group_block_id;
-                    this.check_group_exit(new_id);
-                    break;
-                }
-            }
-        }
-
-        else {
-            this.current_block_id = id;
-            this._send_current_message();
-        }
-    }
-
-    message_sent_event() {
-        var path = this.get_path();
-
-        if (path.length == 0) {
-            if (this.project.blocks[this.current_block_id.toString()].type == 'Auto') {
-                this.send_events(this.project.blocks[this.current_block_id.toString()].connectors[0], '');
-                this.current_block_id = this.project.blocks[this.current_block_id.toString()].connectors[0].targets[0];
-                this._send_current_message();
-            }  
-        }
-
-        else {
-            var block = this.project.blocks[path[0]];
-
-            for (var i = 1; i < path.length; i++) {
-                block = block.blocks[path[i]];
-            }
-
-            if (block.blocks[this.current_block_id.toString()].type == 'Auto') {
-                var new_id = block.blocks[this.current_block_id.toString()].connectors[0].targets[0];
-                this.check_group_exit(new_id);
-            }                  
-        }      
-    }
-
-    _send_current_message(input:string = '') {
-        if (this.current_block_id == undefined || this.current_block_id == -1) {
-            return;
-        }
-  
-        var self = this;
-        var path = this.get_path();
-        var block = this.project;
-
-        if (path.length > 0) {
-            block = this.project.blocks[path[0]];
-
-            for (var i = 1; i < path.length; i++) {
-                block = block.blocks[path[i]];
-            }
-        }       
-        
-        block = block.blocks[this.current_block_id.toString()];
-
-        if (block.chatgpt_variation !== undefined && block.chatgpt_variation) {
-            let content = this.check_variables(block.content, input);   
-            let prompt = this.check_variables(block.variation_prompt);
-
-            this.cur_time = Date.now();          
-            this.variation_request_callback(content, prompt, block.chatgpt_memory);
-        }
-        else {
-            setTimeout(function() {
-                self.send_message(block, input);
-            }, block.delay * 1000);    
-        }
-
-    }
-
-    check_variables(content: string, input: string = '') {
-
-        let regExp = /\[([^\]]+)\]/g;
-        let matches = regExp.exec(content);
-
-        if (matches !== null) {
-          if (matches[1].indexOf(' = ') !== -1) {
-            let matches2 = regExp.exec(content);
-
-            let parts = matches[1].split(' = ');
-            if (parts[0] in this.client_vars && this.client_vars[parts[0]] == parts[1]) {
-                content = content.substring(matches2.index + 1, matches2.index + 1 + matches2[1].length) + content.substring(matches2.index + matches2[0].length);
-                return this.check_variables(content, input);
-            }
-            else {
-                content = content.replace(matches[0], '').replace(matches2[0], '');
-                return this.check_variables(content, input);
-            }
-          }
-          else if (matches[1].indexOf(' != ') !== -1) {
-            let matches2 = regExp.exec(content);
-
-            let parts = matches[1].split(' != ');
-            if (parts[0] in this.client_vars && this.client_vars[parts[0]] != parts[1]) {
-                content = content.substring(matches2.index + 1, matches2.index + 1 + matches2[1].length) + content.substring(matches2.index + matches2[0].length);
-                return this.check_variables(content, input);
-            }
-            else {
-                content = content.replace(matches[0], '').replace(matches2[0], '');
-                return this.check_variables(content, input);
-            }
-          }
-          else {
-            // If it's a column from a CSV table, there should be a period.
-            // Element 1 of the match contains the string without the brackets.
-            let csv_parts = matches[1].split('.');
-
-            if (csv_parts.length == 2) {
-                let db = csv_parts[0];
-                let col = csv_parts[1];
-
-                // The column can be yet another variable
-                if (col.startsWith('[')) {
-                    col = this.client_vars[col.substring(1)];
-                    matches[1] += ']';
-                }
-
-                // Check if local variable
-                if (db in this.client_vars) {
-                    if (Array.isArray(this.client_vars[db])) {
-                      content = content.replace('[' + matches[1] + ']', this.client_vars[db][0][col]);
-                    }
-                    else {
-                      content = content.replace('[' + matches[1] + ']', this.client_vars[db][col]);
-                    }
-                }
-            }
-            else {
-                content = content.replace('[' + matches[1] + ']', this.client_vars[matches[1]]);
+            for (var o in var_options) {
+              let opt = var_options[o].replace(
+                /[-\/\\^$*+?.()|[\]{}]/g,
+                "\\$&"
+              );
+              if (
+                str.match(new RegExp("\\b" + opt + "\\b", "i")) != null &&
+                should_match
+              ) {
+                return var_options[o];
+              }
             }
           }
 
-          if (input !== '' && content.includes('[input]')) {
-            content = content.replace('[input]', input);
-          }            
-        }  
+          if (!should_match) {
+            return "";
+          }
+        } else {
+          //let parts = str.split(' ');
 
-        if (regExp.lastIndex !== 0) {
-            return this.check_variables(content, input);
+          //for (let part in parts) {
+
+          let res = await window.parent.api.invoke("query-db", {
+            db: db,
+            col: col,
+            val: str.replace("barcode:", ""),
+          }); //.replace('?', '').replace('!', '').replace('.', '')});
+
+          if (res.length > 0 && should_match) {
+            return res; //return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+          } else if (res.length == 0 && !should_match) {
+            return res; //return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
+          }
+          //}
         }
-
-        return content;
+      } else {
+        if (
+          matches[1] in this.client_vars &&
+          this.client_vars[matches[1]] == str
+        ) {
+          return str;
+        } else {
+          return "";
+        }
+      }
+    } else {
+      let candidate = connector.toLowerCase(); //.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      if (
+        candidate == str.replace("barcode:", "").toLowerCase() ||
+        str
+          .replace("barcode:", "")
+          .toLowerCase()
+          .match(new RegExp("\\b" + candidate + "\\b", "i")) != null
+      ) {
+        return str;
+      }
     }
 
-    async check_labeled_connector(connector: string, str: string) : Promise<any> {
-        // Check if we should match a variable
-        if (connector.indexOf(' = ') !== -1) {
-            let parts = connector.split(' = ');
-            
-            let key = parts[0] + ']';
-            let val = parts[1].substring(0, parts[1].length-1);
-            let res = await this.check_labeled_connector(key, val);
+    return null;
+  }
 
-            if (res == val) {
-                return val;
-            }
-            else {
-                return null;
-            }
-        }
-        else if (connector.indexOf(' != ') !== -1) {
-            let parts = connector.split(' != ');
+  receive_variation(str: string) {
+    // @TODO: handle error messages in requesting variation from ChatGPT
+    var self = this;
+    var path = this.get_path();
+    var block = this.project;
 
-            let key = parts[0] + ']';
-            let val = parts[1].substring(0, parts[1].length-1);
-            let res = await this.check_labeled_connector(key, val);
+    if (path.length > 0) {
+      block = this.project.blocks[path[0]];
 
-            if (res !== val) {
-                return val;
-            }
-            else {
-                return null;
-            }
-        }
-
-        // Dirty check for nested brackets
-        let leftbracketfound = false;
-        let nestedfound = false;
-        for (let c of connector) {
-            if (c == '[') {
-            if (leftbracketfound) {
-                nestedfound = true;
-                break;  
-            }
-            leftbracketfound = true;
-            }
-            else if (c == ']' && leftbracketfound) {
-            break;
-            }
-        }
-
-        if (nestedfound) {
-            // Check if there is a nested variable that needs to be fixed
-            let nestedmatches = [...connector.matchAll(/(\[(?:\[??[^\[]*?\]))/g)];
-
-            for (const match of nestedmatches) {
-            let nobrackets = match[1].substring(1,match[1].length-1);
-            connector = connector.replace(match[1], this.client_vars[nobrackets]);
-            }
-        }
-
-        // Check for tags / special commands
-        let regExp = /\[([^\]]+)\]/g;
-        let matches = regExp.exec(connector);
-
-        if (matches !== null) {
-            let should_match = true;
-            // @TODO: do something in case of multiple matches, and support [and] or [or]
-            //let match = matches[0];
-
-            // If it's a column from a CSV table, there should be a period.
-            // Element 1 of the match contains the string without the brackets.
-            let csv_parts = matches[1].split('.');
-
-            if (csv_parts.length == 2) {
-                let db = csv_parts[0];
-                let col = csv_parts[1];
-
-                if (db.startsWith('!')) {
-                    should_match = false;
-                    db = db.substring(1);
-                }
-
-                // Check if local variable
-                if (db in this.client_vars) {
-                    if (Array.isArray(this.client_vars[db])) {
-                        let res = [];
-    
-                        for (const r of this.client_vars[db]) {
-                          if (r[col] == str && should_match) {
-                            res.push(r);
-                          } 
-                        }
-    
-                        if (res.length > 0 && should_match) {
-                          let unique = [...new Set(res)];
-                          return unique;
-                        }
-                      }
-    
-                      else {
-                        let var_options = this.client_vars[db][col].split('|');
-                      
-                        for (var o in var_options) {
-                            let opt = var_options[o].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                            if (str.match(new RegExp("\\b"+opt+"\\b", "i")) != null && should_match) {                  
-                                return var_options[o];
-                            }
-                        }  
-                      }
-    
-                      if (!should_match) {
-                          return '';
-                      }
-                }
-                else {
-                    //let parts = str.split(' ');
-
-                    //for (let part in parts) {
-
-                        let res = await window.parent.api.invoke('query-db', {db: db, col: col, val: str.replace('barcode:', '')});//.replace('?', '').replace('!', '').replace('.', '')});
-
-                        if (res.length > 0 && should_match) {
-                            return res;//return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
-                        }
-                        else if (res.length == 0 && !should_match) {
-                            return res;//return parts[part].replace('barcode:', '').replace('?', '').replace('!', '').replace('.', '');
-                        }
-                    //}
-                }
-            }
-            else {
-                if (matches[1] in this.client_vars && this.client_vars[matches[1]] == str) {
-                    return str;
-                }
-                else {
-                    return '';
-                }
-            }
-        }
-
-        else {
-            let candidate = connector.toLowerCase();//.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-            if ((candidate == str.replace('barcode:', '').toLowerCase()) || (str.replace('barcode:', '').toLowerCase().match(new RegExp("\\b"+candidate+"\\b", "i")) != null)) {
-                return str;
-            }                    
-        }
-
-        return null;
+      for (var i = 1; i < path.length; i++) {
+        block = block.blocks[path[i]];
+      }
     }
 
-    receive_variation(str: string) {
-        // @TODO: handle error messages in requesting variation from ChatGPT
-        var self = this;
-        var path = this.get_path();
-        var block = this.project;
+    block = JSON.parse(
+      JSON.stringify(block.blocks[this.current_block_id.toString()])
+    );
+    block.content = str;
 
-        if (path.length > 0) {
-            block = this.project.blocks[path[0]];
+    let after_time = Date.now();
 
-            for (var i = 1; i < path.length; i++) {
-                block = block.blocks[path[i]];
-            }
-        }       
-        
-        block = JSON.parse(JSON.stringify(block.blocks[this.current_block_id.toString()]));
-        block.content = str;
+    let new_delay = block.delay * 1000 - (after_time - this.cur_time);
 
-        let after_time = Date.now();
-
-        let new_delay = block.delay * 1000 - (after_time - this.cur_time);
-
-        if (new_delay < 0) {
-            self.send_message(block);
-        }
-        else {
-            setTimeout(function() {
-                self.send_message(block);
-            }, new_delay);        
-        }
+    if (new_delay < 0) {
+      self.send_message(block);
+    } else {
+      setTimeout(function () {
+        self.send_message(block);
+      }, new_delay);
     }
+  }
 
-    async receive_message(str: string) {
-        let found = false;
-        let else_connector_id = '-1';
+  async receive_message(str: string) {
+    let found = false;
+    let else_connector_id = "-1";
 
-        if (this.current_block_id !== undefined && this.current_block_id !== -1 && this.project.blocks[this.current_block_id.toString()].type !== 'Auto') {
-            var block = this.project.blocks[this.current_block_id.toString()];
+    if (
+      this.current_block_id !== undefined &&
+      this.current_block_id !== -1 &&
+      this.project.blocks[this.current_block_id.toString()].type !== "Auto"
+    ) {
+      var block = this.project.blocks[this.current_block_id.toString()];
 
-            for (var c in block.connectors) {
-                if (block.connectors[c].label == '[else]') {
-                    else_connector_id = c;
-                }
+      for (var c in block.connectors) {
+        if (block.connectors[c].label == "[else]") {
+          else_connector_id = c;
+        } else if (
+          (block.connectors[c].method == "barcode" &&
+            str.startsWith("barcode:")) ||
+          block.connectors[c].method !== "barcode"
+        ) {
+          // @TODO: distinguish between contains / exact match options
+          let ands = block.connectors[c].label.split(" [and] ");
+          let num_match = 0;
+          let last_found_output = null;
 
-                else if ((block.connectors[c].method == 'barcode' && str.startsWith('barcode:')) || block.connectors[c].method !== 'barcode') {
-                    // @TODO: distinguish between contains / exact match options                       
-                    let ands = block.connectors[c].label.split(' [and] ');
-                    let num_match = 0;
-                    let last_found_output = null;
-
-                    for (let and in ands) {
-                        //for (let part in parts) {
-                            let output = await this.check_labeled_connector(ands[and], str);
-                            if (output !== null) {
-                                num_match += 1;
-                                last_found_output = output;
-                            }
-                        //}
-                    }
-
-                    if (num_match == ands.length) {
-                        found = true;
-                        this.current_block_id = block.connectors[c].targets[0];
-                        this.send_events(block.connectors[c], last_found_output);
-                        this._send_current_message(last_found_output);                
-                        break;
-                    }                            
-                }
+          for (let and in ands) {
+            //for (let part in parts) {
+            let output = await this.check_labeled_connector(ands[and], str);
+            if (output !== null) {
+              num_match += 1;
+              last_found_output = output;
             }
-        }
+            //}
+          }
 
-        if (!found) {
-            let else_connector = null;
-            // Check if we need to fire a trigger -- after checking responses to query by the bot!
-            for (var b in this.project.blocks) {
-                if (this.project.blocks[b].type == 'Trigger') {
-                    for (var c in this.project.blocks[b].connectors) {
-                        if (this.project.blocks[b].connectors[c].label == '[else]') {
-                            else_connector = this.project.blocks[b].connectors[c];
-                        }
-
-                        else if ((this.project.blocks[b].connectors[c].method == 'barcode' && str.startsWith('barcode:')) || this.project.blocks[b].connectors[c].method !== 'barcode') {
-                            // @TODO: distinguish between contains / exact match options
-                            //let parts = str.split(' ');
-                            let ands = this.project.blocks[b].connectors[c].label.split(' [and] ');
-                            let num_match = 0;
-                            let last_found_output = null;
-
-                            for (let and in ands) {
-                                //for (let part in parts) {
-                                    let output = await this.check_labeled_connector(ands[and], str);//parts[part].replace('?', ''));
-
-                                    if (output !== null) {
-                                        num_match += 1;
-                                        last_found_output = output;
-                                    }
-                                //}
-                            }
-
-                            if (num_match == ands.length) {
-                                found = true;
-                                this.current_block_id = this.project.blocks[b].connectors[c].targets[0];
-                                this.send_events(this.project.blocks[b].connectors[c], last_found_output);
-                                this._send_current_message(last_found_output);                
-                                break;
-                            }                            
-                        }
-                    }                
-                }
-            }
-
-            if (else_connector !== null) {
-                found = true;
-                this.current_block_id = else_connector.targets[0];
-                this.send_events(else_connector, '');
-                this._send_current_message('');                
-            }
-        }
-
-        if (!found && else_connector_id !== '-1') {
+          if (num_match == ands.length) {
             found = true;
-            this.current_block_id = block.connectors[else_connector_id].targets[0];
-            this.send_events(block.connectors[else_connector_id], str);
-            this._send_current_message(str);
+            this.current_block_id = block.connectors[c].targets[0];
+            this.send_events(block.connectors[c], last_found_output);
+            this._send_current_message(last_found_output);
+            break;
+          }
         }
+      }
     }
 
-    set_participant_id(pid: string) {
-        // Not used right now
-    }    
+    if (!found) {
+      let else_connector = null;
+      // Check if we need to fire a trigger -- after checking responses to query by the bot!
+      for (var b in this.project.blocks) {
+        if (this.project.blocks[b].type == "Trigger") {
+          for (var c in this.project.blocks[b].connectors) {
+            if (this.project.blocks[b].connectors[c].label == "[else]") {
+              else_connector = this.project.blocks[b].connectors[c];
+            } else if (
+              (this.project.blocks[b].connectors[c].method == "barcode" &&
+                str.startsWith("barcode:")) ||
+              this.project.blocks[b].connectors[c].method !== "barcode"
+            ) {
+              // @TODO: distinguish between contains / exact match options
+              //let parts = str.split(' ');
+              let ands =
+                this.project.blocks[b].connectors[c].label.split(" [and] ");
+              let num_match = 0;
+              let last_found_output = null;
 
+              for (let and in ands) {
+                //for (let part in parts) {
+                let output = await this.check_labeled_connector(ands[and], str); //parts[part].replace('?', ''));
+
+                if (output !== null) {
+                  num_match += 1;
+                  last_found_output = output;
+                }
+                //}
+              }
+
+              if (num_match == ands.length) {
+                found = true;
+                this.current_block_id =
+                  this.project.blocks[b].connectors[c].targets[0];
+                this.send_events(
+                  this.project.blocks[b].connectors[c],
+                  last_found_output
+                );
+                this._send_current_message(last_found_output);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (else_connector !== null) {
+        found = true;
+        this.current_block_id = else_connector.targets[0];
+        this.send_events(else_connector, "");
+        this._send_current_message("");
+      }
+    }
+
+    if (!found && else_connector_id !== "-1") {
+      found = true;
+      this.current_block_id = block.connectors[else_connector_id].targets[0];
+      this.send_events(block.connectors[else_connector_id], str);
+      this._send_current_message(str);
+    }
+  }
+
+  set_participant_id(pid: string) {
+    // Not used right now
+  }
 }
-  
 
-export {LocalProjectController};
+export { LocalProjectController };
