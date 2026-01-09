@@ -639,7 +639,9 @@ class ProjectController {
                         let output = await this.check_labeled_connector(ands[and], str);
                         if (output !== null) {
                             num_match += 1;
-                            last_found_output = output;
+                            if (last_found_output === null) {
+                              last_found_output = output;
+                            }
                         }
                     //}
                 }
